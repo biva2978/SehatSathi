@@ -126,12 +126,21 @@ export default function ProfilePage() {
               </p>
             )}
           </div>
-          <button
-            onClick={handleLogOut}
-            className="text-xs bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-lg transition mt-1"
-          >
-            Sign Out
-          </button>
+          {user ? (
+            <button
+              onClick={handleLogOut}
+              className="text-xs bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-lg transition mt-1"
+            >
+              Sign Out
+            </button>
+          ) : (
+            <a
+              href="/login"
+              className="text-xs bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-lg transition mt-1"
+            >
+              Sign In
+            </a>
+          )}
         </div>
       </div>
 
