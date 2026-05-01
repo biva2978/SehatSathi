@@ -1,7 +1,10 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Disclaimer from "@/components/Disclaimer";
+import { useAuth } from "@/contexts/AuthContext";
+import { saveUserData, loadUserData } from "@/lib/firebase";
 
 const CONDITIONS = [
   "PCOS",
@@ -37,13 +40,27 @@ const EMPTY: Profile = {
 };
 
 export default function ProfilePage() {
+  const { user, logOut } = useAuth();
+  const router = useRouter();
   const [profile, setProfile] = useState<Profile>(EMPTY);
   const [saved, setSaved] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
-    const stored = localStorage.getItem("sehatsathi_profile");
-    if (stored) setProfile(JSON.parse(stored));
-  }, []);
+    async function load() {
+      if (user) {
+        const cloud = await loadUserData(user.uid, "profile").catch(() => null);
+        if (cloud) {
+          setProfile(cloud as Profile);
+          localStorage.setItem("sehatsathi_profile", JSON.stringify(cloud));
+          return;
+        }
+      }
+      const stored = localStorage.getItem("sehatsathi_profile");
+      if (stored) setProfile(JSON.parse(stored));
+    }
+    load();
+  }, [user]);
 
   function handleChange(field: keyof Profile, value: string) {
     setProfile((p) => ({ ...p, [field]: value }));
@@ -63,9 +80,19 @@ export default function ProfilePage() {
     setSaved(false);
   }
 
-  function handleSave() {
+  async function handleSave() {
+    setSyncing(true);
     localStorage.setItem("sehatsathi_profile", JSON.stringify(profile));
+    if (user) {
+      await saveUserData(user.uid, "profile", profile).catch(() => null);
+    }
     setSaved(true);
+    setSyncing(false);
+  }
+
+  async function handleLogOut() {
+    await logOut();
+    router.replace("/login");
   }
 
   const bmi =
@@ -87,10 +114,25 @@ export default function ProfilePage() {
     <div className="min-h-screen pb-28">
       {/* Header */}
       <div className="bg-gradient-to-br from-purple-500 to-pink-400 px-5 pt-12 pb-8 text-white">
-        <h1 className="text-2xl font-bold">My Profile 👤</h1>
-        <p className="text-purple-100 text-sm mt-1">
-          Your health info &amp; goals
-        </p>
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">My Profile 👤</h1>
+            <p className="text-purple-100 text-sm mt-1">
+              Your health info &amp; goals
+            </p>
+            {user && (
+              <p className="text-purple-200 text-xs mt-1">
+                {user.email}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={handleLogOut}
+            className="text-xs bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-lg transition mt-1"
+          >
+            Sign Out
+          </button>
+        </div>
       </div>
 
       <div className="max-w-lg mx-auto px-4 mt-5 space-y-4">
@@ -288,14 +330,15 @@ export default function ProfilePage() {
         {/* Save Button */}
         <button
           onClick={handleSave}
-          className="w-full btn-primary text-center py-3 text-base"
+          disabled={syncing}
+          className="w-full btn-primary text-center py-3 text-base disabled:opacity-60"
         >
-          {saved ? "✅ Profile Saved!" : "Save Profile"}
+          {syncing ? "Saving…" : saved ? "✅ Profile Saved!" : "Save Profile"}
         </button>
 
-        {saved && (
+        {saved && !syncing && (
           <p className="text-center text-xs text-gray-400 -mt-2">
-            Your profile is saved on this device.
+            {user ? "☁️ Saved to your account." : "Saved on this device."}
           </p>
         )}
       </div>
