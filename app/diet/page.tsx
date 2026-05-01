@@ -2,6 +2,8 @@
 import { useState, useEffect } from "react";
 import Navbar from "@/components/Navbar";
 import Disclaimer from "@/components/Disclaimer";
+import { useAuth } from "@/contexts/AuthContext";
+import { saveUserData, loadUserData } from "@/lib/firebase";
 
 type Meal = {
   name: string;
@@ -54,6 +56,7 @@ const BUDGET_LABELS: Record<string, string> = {
 };
 
 export default function DietPage() {
+  const { user } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [plan, setPlan] = useState<DietPlan | null>(null);
   const [loading, setLoading] = useState(false);
@@ -61,16 +64,29 @@ export default function DietPage() {
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
 
   useEffect(() => {
-    const stored = localStorage.getItem("sehatsathi_profile");
-    if (stored) setProfile(JSON.parse(stored));
+    async function load() {
+      // Load profile
+      const storedProfile = localStorage.getItem("sehatsathi_profile");
+      if (storedProfile) setProfile(JSON.parse(storedProfile));
 
-    const cachedPlan = localStorage.getItem("sehatsathi_diet_plan");
-    const cachedAt = localStorage.getItem("sehatsathi_diet_plan_at");
-    if (cachedPlan) {
-      setPlan(JSON.parse(cachedPlan));
-      setGeneratedAt(cachedAt);
+      // Load diet plan — try cloud first
+      if (user) {
+        const cloud = await loadUserData(user.uid, "diet_plan").catch(() => null);
+        if (cloud?.plan) {
+          setPlan(cloud.plan);
+          setGeneratedAt(cloud.generatedAt ?? null);
+          return;
+        }
+      }
+      const cachedPlan = localStorage.getItem("sehatsathi_diet_plan");
+      const cachedAt = localStorage.getItem("sehatsathi_diet_plan_at");
+      if (cachedPlan) {
+        setPlan(JSON.parse(cachedPlan));
+        setGeneratedAt(cachedAt);
+      }
     }
-  }, []);
+    load();
+  }, [user]);
 
   async function generatePlan() {
     setLoading(true);
@@ -108,6 +124,9 @@ export default function DietPage() {
       setGeneratedAt(now);
       localStorage.setItem("sehatsathi_diet_plan", JSON.stringify(data));
       localStorage.setItem("sehatsathi_diet_plan_at", now);
+      if (user) {
+        await saveUserData(user.uid, "diet_plan", { plan: data, generatedAt: now }).catch(() => null);
+      }
     } catch {
       setError("Network error. Please check your connection.");
     }

@@ -1,6 +1,8 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import Navbar from "@/components/Navbar";
+import { useAuth } from "@/contexts/AuthContext";
+import { saveUserData, loadUserData } from "@/lib/firebase";
 
 type ReminderType = "medicine" | "meal" | "water";
 
@@ -41,26 +43,40 @@ const EMPTY_FORM = {
 };
 
 export default function RemindersPage() {
+  const { user } = useAuth();
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [form, setForm] = useState(EMPTY_FORM);
   const [showForm, setShowForm] = useState(false);
   const [notifStatus, setNotifStatus] = useState<NotificationPermission | "unsupported">("default");
   const lastFiredRef = useRef<Record<string, string>>({});
 
-  // Load from localStorage
   useEffect(() => {
-    const stored = localStorage.getItem("sehatsathi_reminders");
-    if (stored) setReminders(JSON.parse(stored));
+    async function load() {
+      if (user) {
+        const cloud = await loadUserData(user.uid, "reminders").catch(() => null);
+        if (cloud?.list) {
+          setReminders(cloud.list);
+          localStorage.setItem("sehatsathi_reminders", JSON.stringify(cloud.list));
+        } else {
+          const stored = localStorage.getItem("sehatsathi_reminders");
+          if (stored) setReminders(JSON.parse(stored));
+        }
+      } else {
+        const stored = localStorage.getItem("sehatsathi_reminders");
+        if (stored) setReminders(JSON.parse(stored));
+      }
 
-    const fired = localStorage.getItem("sehatsathi_reminders_fired");
-    if (fired) lastFiredRef.current = JSON.parse(fired);
+      const fired = localStorage.getItem("sehatsathi_reminders_fired");
+      if (fired) lastFiredRef.current = JSON.parse(fired);
 
-    if (!("Notification" in window)) {
-      setNotifStatus("unsupported");
-    } else {
-      setNotifStatus(Notification.permission);
+      if (!("Notification" in window)) {
+        setNotifStatus("unsupported");
+      } else {
+        setNotifStatus(Notification.permission);
+      }
     }
-  }, []);
+    load();
+  }, [user]);
 
   // Check reminders every 30 seconds
   useEffect(() => {
@@ -105,9 +121,12 @@ export default function RemindersPage() {
     setNotifStatus(result);
   }
 
-  function save(list: Reminder[]) {
+  async function save(list: Reminder[]) {
     setReminders(list);
     localStorage.setItem("sehatsathi_reminders", JSON.stringify(list));
+    if (user) {
+      await saveUserData(user.uid, "reminders", { list }).catch(() => null);
+    }
   }
 
   function addReminder() {

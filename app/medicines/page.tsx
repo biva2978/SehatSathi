@@ -2,6 +2,8 @@
 import { useState, useEffect } from "react";
 import Navbar from "@/components/Navbar";
 import Disclaimer from "@/components/Disclaimer";
+import { useAuth } from "@/contexts/AuthContext";
+import { saveUserData, loadUserData } from "@/lib/firebase";
 
 type MedicineInfo = {
   name: string;
@@ -29,6 +31,7 @@ const FREQ_OPTIONS = [
 ];
 
 export default function MedicinesPage() {
+  const { user } = useAuth();
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [inputName, setInputName] = useState("");
   const [frequency, setFrequency] = useState("Once daily");
@@ -37,13 +40,27 @@ export default function MedicinesPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
-    const stored = localStorage.getItem("sehatsathi_medicines");
-    if (stored) setMedicines(JSON.parse(stored));
-  }, []);
+    async function load() {
+      if (user) {
+        const cloud = await loadUserData(user.uid, "medicines").catch(() => null);
+        if (cloud?.list) {
+          setMedicines(cloud.list);
+          localStorage.setItem("sehatsathi_medicines", JSON.stringify(cloud.list));
+          return;
+        }
+      }
+      const stored = localStorage.getItem("sehatsathi_medicines");
+      if (stored) setMedicines(JSON.parse(stored));
+    }
+    load();
+  }, [user]);
 
-  function saveMedicines(list: Medicine[]) {
+  async function saveMedicines(list: Medicine[]) {
     setMedicines(list);
     localStorage.setItem("sehatsathi_medicines", JSON.stringify(list));
+    if (user) {
+      await saveUserData(user.uid, "medicines", { list }).catch(() => null);
+    }
   }
 
   async function handleAdd() {
