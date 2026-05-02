@@ -1,32 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
-  const { messages, profile } = await req.json();
+  const { messages, profile, medicines } = await req.json();
 
   const apiKey = process.env.CLAUDE_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "AI service not configured." }, { status: 500 });
 
   const profileContext = profile
-    ? `User profile: Age ${profile.age || "unknown"}, Gender ${profile.gender || "unknown"}, Height ${profile.height || "?"}cm, Weight ${profile.weight || "?"}kg, Health conditions: ${profile.conditions?.join(", ") || "none"}, Goal: ${profile.goal || "not set"}, Budget: ${profile.budget || "not set"}.`
-    : "No profile available.";
+    ? `Age ${profile.age || "?"}, Gender ${profile.gender || "?"}, Height ${profile.height || "?"}cm, Weight ${profile.weight || "?"}kg, Conditions: ${profile.conditions?.join(", ") || "none"}, Goal: ${profile.goal || "not set"}, Budget: ${profile.budget || "not set"}.`
+    : "No profile set.";
 
-  const system = `You are SehatSathi AI — a friendly, knowledgeable health assistant for Bangladeshi users. You speak clearly and practically.
+  const medContext = medicines?.length
+    ? medicines.map((m: { inputName: string; info?: { name: string } }) => m.info?.name ?? m.inputName).join(", ")
+    : "none";
 
-${profileContext}
+  const system = `You are SehatSathi AI — a friendly, expert health assistant for Bangladeshi users.
+
+User profile: ${profileContext}
+Current medicines: ${medContext}
 
 You can help with:
-- Medicine information: uses, side effects, precautions, diet tips
-- Personalised diet and nutrition advice using Bangladeshi foods
-- Understanding health metrics (BMI, blood pressure, blood sugar etc.)
-- General wellness, lifestyle, and fitness tips
-- Interpreting symptoms and suggesting when to see a doctor
+- Medicine side effects, interactions, and precautions
+- Personalised diet advice using Bangladeshi foods
+- Understanding health metrics (BMI, blood pressure, blood sugar)
+- General wellness, fitness, and lifestyle tips
+- Interpreting symptoms and when to see a doctor
 
 Rules:
 - Always recommend consulting a doctor for diagnoses or prescriptions
 - Keep responses concise — 2-4 short paragraphs max
-- Use the user's profile context to personalise answers
-- Suggest affordable, locally available Bangladeshi foods when relevant
-- Be warm and encouraging`;
+- Reference the user's specific medicines and conditions when relevant
+- Suggest affordable, locally available Bangladeshi foods
+- Be warm, clear, and encouraging`;
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
