@@ -5,10 +5,32 @@ import Disclaimer from "@/components/Disclaimer";
 import { useAuth } from "@/contexts/AuthContext";
 import { saveUserData, loadUserData } from "@/lib/firebase";
 
-type MedicineInfo = { name: string; uses: string; sideEffects: string[]; precautions: string[]; dietTip: string; };
-type Medicine = { id: string; inputName: string; frequency: string; info: MedicineInfo | null; addedAt: number; };
+type MedicineInfo = {
+  name: string;
+  uses: string;
+  sideEffects: string[];
+  precautions: string[];
+  dietTip: string;
+};
 
-const FREQ_OPTIONS = ["Once daily","Twice daily","Three times daily","As needed","Before meals","After meals"];
+type Medicine = {
+  id: string;
+  inputName: string;
+  frequency: string;
+  info: MedicineInfo | null;
+  addedAt: number;
+};
+
+type BulkStatus = { name: string; status: "pending" | "done" | "error"; message?: string };
+
+const FREQ_OPTIONS = [
+  "Once daily",
+  "Twice daily",
+  "Three times daily",
+  "As needed",
+  "Before meals",
+  "After meals",
+];
 
 export default function MedicinesPage() {
   const { user } = useAuth();
@@ -18,12 +40,20 @@ export default function MedicinesPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [mode, setMode] = useState<"single" | "bulk">("single");
+  const [bulkInput, setBulkInput] = useState("");
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkStatuses, setBulkStatuses] = useState<BulkStatus[]>([]);
 
   useEffect(() => {
     async function load() {
       if (user) {
         const cloud = await loadUserData(user.uid, "medicines").catch(() => null);
-        if (cloud?.list) { setMedicines(cloud.list); localStorage.setItem("sehatsathi_medicines", JSON.stringify(cloud.list)); return; }
+        if (cloud?.list) {
+          setMedicines(cloud.list);
+          localStorage.setItem("sehatsathi_medicines", JSON.stringify(cloud.list));
+          return;
+        }
       }
       const stored = localStorage.getItem("sehatsathi_medicines");
       if (stored) setMedicines(JSON.parse(stored));
@@ -46,37 +76,97 @@ export default function MedicinesPage() {
       if (data.found === false) { setError(data.message ?? "Medicine not recognised."); setLoading(false); return; }
       if (data.error) { setError(data.error); setLoading(false); return; }
       const newMed: Medicine = { id: Date.now().toString(), inputName: inputName.trim(), frequency, info: data as MedicineInfo, addedAt: Date.now() };
-      saveMedicines([newMed, ...medicines]);
+      await saveMedicines([newMed, ...medicines]);
       setExpanded(newMed.id); setInputName("");
     } catch { setError("Network error. Please check your connection."); }
     setLoading(false);
   }
 
-  function removeMedicine(id: string) { saveMedicines(medicines.filter((m) => m.id !== id)); if (expanded === id) setExpanded(null); }
+  async function handleBulkAdd() {
+    const names = bulkInput.split(/[\n,]+/).map((n) => n.trim()).filter((n) => n.length > 1);
+    if (names.length === 0) return;
+    setBulkLoading(true);
+    setBulkStatuses(names.map((name) => ({ name, status: "pending" })));
+    const results: Medicine[] = [];
+    await Promise.all(
+      names.map(async (name, idx) => {
+        try {
+          const res = await fetch("/api/medicine-info", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+          const data = await res.json();
+          if (data.found === false || data.error) {
+            setBulkStatuses((prev) => prev.map((s, i) => i === idx ? { ...s, status: "error", message: data.message ?? data.error ?? "Not recognised" } : s));
+          } else {
+            results.push({ id: (Date.now() + idx).toString(), inputName: name, frequency: "Once daily", info: data as MedicineInfo, addedAt: Date.now() });
+            setBulkStatuses((prev) => prev.map((s, i) => i === idx ? { ...s, status: "done" } : s));
+          }
+        } catch {
+          setBulkStatuses((prev) => prev.map((s, i) => i === idx ? { ...s, status: "error", message: "Network error" } : s));
+        }
+      })
+    );
+    if (results.length > 0) await saveMedicines([...results, ...medicines]);
+    setBulkLoading(false);
+    setBulkInput("");
+  }
+
+  function removeMedicine(id: string) {
+    saveMedicines(medicines.filter((m) => m.id !== id));
+    if (expanded === id) setExpanded(null);
+  }
 
   return (
     <div className="min-h-screen pb-28">
       <div className="bg-gradient-to-br from-green-500 to-emerald-400 px-5 pt-12 pb-8 text-white">
         <h1 className="text-2xl font-bold">My Medicines 💊</h1>
-        <p className="text-green-100 text-sm mt-1">Add a medicine to learn about it</p>
+        <p className="text-green-100 text-sm mt-1">Add medicines to learn about them</p>
       </div>
       <div className="max-w-lg mx-auto px-4 mt-5 space-y-4">
         <Disclaimer />
         <div className="card space-y-3">
-          <h2 className="font-semibold text-gray-700 text-sm uppercase tracking-wide">Add a Medicine</h2>
-          <input type="text" placeholder="e.g. Metformin, Folic Acid, Omeprazole" value={inputName} onChange={(e) => { setInputName(e.target.value); setError(""); }} onKeyDown={(e) => e.key === "Enter" && handleAdd()} className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
-          <div>
-            <label className="block text-xs text-gray-500 mb-1.5">How often do you take it?</label>
-            <div className="flex flex-wrap gap-2">
-              {FREQ_OPTIONS.map((f) => (<button key={f} onClick={() => setFrequency(f)} className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${frequency === f ? "bg-green-500 text-white border-green-500" : "bg-white text-gray-500 border-gray-200 hover:border-green-300"}`}>{f}</button>))}
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold text-gray-700 text-sm uppercase tracking-wide">Add Medicine</h2>
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+              <button onClick={() => { setMode("single"); setBulkStatuses([]); }} className={`px-3 py-1.5 font-medium transition ${mode === "single" ? "bg-green-500 text-white" : "bg-white text-gray-500"}`}>Single</button>
+              <button onClick={() => { setMode("bulk"); setError(""); }} className={`px-3 py-1.5 font-medium transition ${mode === "bulk" ? "bg-green-500 text-white" : "bg-white text-gray-500"}`}>Multiple</button>
             </div>
           </div>
-          {error && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
-          <button onClick={handleAdd} disabled={loading || !inputName.trim()} className="w-full btn-primary py-2.5 disabled:opacity-50 disabled:cursor-not-allowed">{loading ? "Looking up medicine…" : "Add Medicine"}</button>
-          {loading && <p className="text-xs text-center text-gray-400">Fetching information from AI…</p>}
+
+          {mode === "single" ? (
+            <>
+              <input type="text" placeholder="e.g. Metformin, Folic Acid, Omeprazole" value={inputName} onChange={(e) => { setInputName(e.target.value); setError(""); }} onKeyDown={(e) => e.key === "Enter" && handleAdd()} className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+              <div>
+                <label className="block text-xs text-gray-500 mb-1.5">How often?</label>
+                <div className="flex flex-wrap gap-2">
+                  {FREQ_OPTIONS.map((f) => (<button key={f} onClick={() => setFrequency(f)} className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${frequency === f ? "bg-green-500 text-white border-green-500" : "bg-white text-gray-500 border-gray-200 hover:border-green-300"}`}>{f}</button>))}
+                </div>
+              </div>
+              {error && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
+              <button onClick={handleAdd} disabled={loading || !inputName.trim()} className="w-full btn-primary py-2.5 disabled:opacity-50 disabled:cursor-not-allowed">{loading ? "Looking up medicine…" : "Add Medicine"}</button>
+              {loading && <p className="text-xs text-center text-gray-400">Fetching information from AI…</p>}
+            </>
+          ) : (
+            <>
+              <textarea placeholder={"Enter one medicine per line, or separate with commas:\nMetformin\nFolic Acid\nOmeprazole, Amlodipine"} value={bulkInput} onChange={(e) => setBulkInput(e.target.value)} rows={4} className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none" />
+              <button onClick={handleBulkAdd} disabled={bulkLoading || !bulkInput.trim()} className="w-full btn-primary py-2.5 disabled:opacity-50 disabled:cursor-not-allowed">{bulkLoading ? "Looking up all medicines…" : "Add All Medicines"}</button>
+              {bulkStatuses.length > 0 && (
+                <div className="space-y-1.5">
+                  {bulkStatuses.map((s, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm">
+                      {s.status === "pending" && <span className="w-4 h-4 rounded-full border-2 border-gray-300 border-t-green-500 animate-spin flex-shrink-0" />}
+                      {s.status === "done" && <span className="text-green-500 flex-shrink-0">✓</span>}
+                      {s.status === "error" && <span className="text-red-400 flex-shrink-0">✕</span>}
+                      <span className={s.status === "error" ? "text-red-500" : "text-gray-700"}>{s.name}</span>
+                      {s.status === "error" && <span className="text-xs text-red-400">— {s.message}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
+
         {medicines.length === 0 ? (
-          <div className="card text-center text-gray-400 py-10"><div className="text-4xl mb-2">💊</div><p className="font-medium">No medicines added yet</p><p className="text-sm mt-1">Type a medicine name above to get started</p></div>
+          <div className="card text-center text-gray-400 py-10"><div className="text-4xl mb-2">💊</div><p className="font-medium">No medicines added yet</p><p className="text-sm mt-1">Use Single or Multiple mode above to add</p></div>
         ) : (
           <div className="space-y-3">
             <h2 className="font-semibold text-gray-600 text-sm">My Medicines ({medicines.length})</h2>
