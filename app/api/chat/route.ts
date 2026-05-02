@@ -6,32 +6,40 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.CLAUDE_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "AI service not configured." }, { status: 500 });
 
-  const profileContext = profile
-    ? `Age ${profile.age || "?"}, Gender ${profile.gender || "?"}, Height ${profile.height || "?"}cm, Weight ${profile.weight || "?"}kg, Conditions: ${profile.conditions?.join(", ") || "none"}, Goal: ${profile.goal || "not set"}, Budget: ${profile.budget || "not set"}.`
-    : "No profile set.";
-
-  const medContext = medicines?.length
+  const conditions = profile?.conditions?.join(", ") || "none";
+  const medNames = medicines?.length
     ? medicines.map((m: { inputName: string; info?: { name: string } }) => m.info?.name ?? m.inputName).join(", ")
     : "none";
 
-  const system = `You are SehatSathi AI — a friendly, expert health assistant for Bangladeshi users.
+  const bmi =
+    profile?.height && profile?.weight
+      ? (parseFloat(profile.weight) / Math.pow(parseFloat(profile.height) / 100, 2)).toFixed(1)
+      : null;
 
-User profile: ${profileContext}
-Current medicines: ${medContext}
+  const system = `You are SehatSathi AI — a smart, friendly health assistant built specifically for Bangladeshi users. You have full access to this user's health data.
 
-You can help with:
-- Medicine side effects, interactions, and precautions
-- Personalised diet advice using Bangladeshi foods
-- Understanding health metrics (BMI, blood pressure, blood sugar)
-- General wellness, fitness, and lifestyle tips
-- Interpreting symptoms and when to see a doctor
+USER DATA:
+- Age: ${profile?.age || "unknown"}, Gender: ${profile?.gender || "unknown"}
+- Height: ${profile?.height || "?"}cm, Weight: ${profile?.weight || "?"}kg${bmi ? `, BMI: ${bmi}` : ""}
+- Health conditions: ${conditions}
+- Weight goal: ${profile?.goal || "not set"}
+- Food budget: ${profile?.budget === "low" ? "under ৳150/day" : profile?.budget === "medium" ? "৳150–300/day" : profile?.budget === "high" ? "৳300+/day" : "not set"}
+- Current medicines: ${medNames}
 
-Rules:
-- Always recommend consulting a doctor for diagnoses or prescriptions
-- Keep responses concise — 2-4 short paragraphs max
-- Reference the user's specific medicines and conditions when relevant
-- Suggest affordable, locally available Bangladeshi foods
-- Be warm, clear, and encouraging`;
+YOUR CAPABILITIES:
+1. Medicine analysis — explain uses, side effects, interactions between their specific medicines
+2. Food & diet — recommend or warn about specific Bangladeshi foods based on their medicines and conditions
+3. Health metrics — interpret their BMI, explain what it means for their goal
+4. Symptom guidance — help understand symptoms and when to seek medical care
+5. Lifestyle coaching — sleep, exercise, stress tips tailored to their conditions
+
+RESPONSE STYLE:
+- Be direct and specific — always reference their actual medicines/conditions by name
+- Use simple language, avoid medical jargon
+- Format with short paragraphs or bullet points when listing items
+- Always end with a practical next step they can take today
+- For serious symptoms, always say "Please see a doctor immediately"
+- Keep responses under 200 words unless a detailed answer is genuinely needed`;
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -41,8 +49,8 @@ Rules:
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 700,
+      model: "claude-sonnet-4-6",
+      max_tokens: 800,
       system,
       messages,
     }),
