@@ -125,10 +125,8 @@ CRITICAL RULES:
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
       max_tokens: 5000,
-      messages: [
-        { role: "user", content: prompt },
-        { role: "assistant", content: "{" },
-      ],
+      system: "You are a JSON-only responder. Output ONLY a valid JSON object — no markdown, no code fences, no explanation. Start your response with { and end with }.",
+      messages: [{ role: "user", content: prompt }],
     }),
   });
 
@@ -136,13 +134,13 @@ CRITICAL RULES:
     const errText = await response.text().catch(() => "");
     console.error("Claude API error:", response.status, errText);
     return NextResponse.json(
-      { error: "AI service error. Please try again." },
+      { error: `AI service error (${response.status}). Please check your API key and try again.` },
       { status: 502 }
     );
   }
 
   const data = await response.json();
-  const rawText = "{" + (data.content?.[0]?.text ?? "");
+  const rawText = data.content?.[0]?.text ?? "";
 
   const cleaned = rawText
     .replace(/^```json\s*/i, "")

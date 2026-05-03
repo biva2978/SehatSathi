@@ -51,33 +51,41 @@ Rules:
 - foodsToEat must use affordable Bangladeshi foods only
 - Be specific and practical, not generic`;
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 2000,
-      messages: [
-        { role: "user", content: prompt },
-        { role: "assistant", content: "{" },
-      ],
-    }),
-  });
+  const models = ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"];
+  let response: Response | null = null;
+  let lastStatus = 0;
 
-  if (!response.ok) {
+  for (const model of models) {
+    response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 2000,
+        system: "You are a JSON-only responder. Output ONLY a valid JSON object — no markdown, no code fences, no explanation. Start your response with { and end with }.",
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    if (response.ok) break;
+    lastStatus = response.status;
     const errText = await response.text().catch(() => "");
-    console.error("Claude API error:", response.status, errText);
-    return NextResponse.json({ error: "AI service error. Please try again." }, { status: 502 });
+    console.error(`Claude API error (${model}):`, response.status, errText);
+  }
+
+  if (!response || !response.ok) {
+    return NextResponse.json(
+      { error: `AI service error (${lastStatus}). Please check your API key in Vercel settings and try again.` },
+      { status: 502 }
+    );
   }
 
   const data = await response.json();
-  const rawText = "{" + (data.content?.[0]?.text ?? "");
+  const rawText = data.content?.[0]?.text ?? "";
 
-  // Strip markdown code fences if present
   const cleaned = rawText
     .replace(/^```json\s*/i, "")
     .replace(/^```\s*/i, "")
